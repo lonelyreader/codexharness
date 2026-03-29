@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Harness Wrap-Up"
+  short_description: "Close tasks by updating harness records"
+  default_prompt: "Use $codex-harness-wrap-up to finish the task by updating codex-harness-kit state and reporting verification honestly."

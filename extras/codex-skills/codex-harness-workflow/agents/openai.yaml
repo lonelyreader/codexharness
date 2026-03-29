@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Harness Workflow"
+  short_description: "Restore and drive repo work via harness"
+  default_prompt: "Use $codex-harness-workflow to restore repo state from codex-harness-kit files before continuing."

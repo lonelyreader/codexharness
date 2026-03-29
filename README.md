@@ -257,6 +257,33 @@ Until this package is published, the simplest options are:
 
 Or link it globally with `npm link`.
 
+## Optional Local Codex Skills
+
+This repository also includes two optional local Codex skills under
+[`extras/codex-skills/`](/Users/gexu/Desktop/codexharness/extras/codex-skills/README.md):
+
+- `codex-harness-workflow`
+- `codex-harness-wrap-up`
+
+These are convenience shortcuts for people who use Codex locally and want
+shorter start/end prompts. They are not part of the npm package contract, and
+the main product still remains:
+
+- the CLI
+- the generated repository files
+- the `AGENTS.md` workflow
+
+To install them manually into a local Codex setup:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R extras/codex-skills/codex-harness-workflow ~/.codex/skills/
+cp -R extras/codex-skills/codex-harness-wrap-up ~/.codex/skills/
+```
+
+Then start a new Codex thread, or restart the app if the skills do not appear
+immediately.
+
 ## Assumptions in v1
 
 - The default layout uses `docs/` because it stays readable in ordinary repos.
