@@ -55,6 +55,25 @@ export function hasMarkedBlock(content: string, startMarker: string, endMarker: 
   return endIndex !== -1;
 }
 
+export function getMarkedBlockContent(
+  content: string,
+  startMarker: string,
+  endMarker: string
+): string | null {
+  const startIndex = content.indexOf(startMarker);
+  if (startIndex === -1) {
+    return null;
+  }
+
+  const blockStartIndex = startIndex + startMarker.length;
+  const endIndex = content.indexOf(endMarker, blockStartIndex);
+  if (endIndex === -1) {
+    return null;
+  }
+
+  return content.slice(blockStartIndex, endIndex);
+}
+
 export function upsertMarkedBlock(
   existingContent: string,
   blockContent: string,
@@ -568,6 +587,16 @@ async function validateHarnessActivation(
   );
 
   if (hasFullHarnessBlock) {
+    if (!hasValidFullHarnessContent(agentsContent)) {
+      issues.push({
+        level: "error",
+        path: "AGENTS.md",
+        message:
+          "`AGENTS.md` contains codex-harness-kit markers, but the harness block is empty or missing required workflow instructions.",
+        suggestion:
+          "Re-run `codex-harness-kit init --force` or restore the harness-managed instructions inside the codex-harness-kit block."
+      });
+    }
     return issues;
   }
 
@@ -580,6 +609,18 @@ async function validateHarnessActivation(
         : "`AGENTS.md` exists, but codex-harness-kit is not activated in it.",
       suggestion:
         "Run `codex-harness-kit init` again, or merge the codex-harness-kit harness block into `AGENTS.md`."
+    });
+    return issues;
+  }
+
+  if (!hasValidBridgeContent(agentsContent)) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.md",
+      message:
+        "`AGENTS.md` contains codex-harness-kit bridge markers, but the bridge block is empty or missing the activation instructions.",
+      suggestion:
+        "Re-run `codex-harness-kit init` or restore the bridge text that points `AGENTS.md` to `AGENTS.harness.md`."
     });
     return issues;
   }
@@ -603,9 +644,52 @@ async function validateHarnessActivation(
       suggestion:
         "Re-run `codex-harness-kit init --force` or restore the harness-managed block in `AGENTS.harness.md`."
     });
+  } else if (!hasValidHarnessSupplementContent(harnessAgentsContent)) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.harness.md",
+      message:
+        "`AGENTS.harness.md` contains codex-harness-kit markers, but the harness block is empty or missing required workflow instructions.",
+      suggestion:
+        "Re-run `codex-harness-kit init --force` or restore the harness-managed instructions inside `AGENTS.harness.md`."
+    });
   }
 
   return issues;
+}
+
+function hasValidBridgeContent(agentsContent: string): boolean {
+  return hasRequiredSnippets(
+    getMarkedBlockContent(agentsContent, HARNESS_BRIDGE_MARKER_START, HARNESS_BRIDGE_MARKER_END),
+    ["codex-harness-kit", "AGENTS.harness.md", "paths"]
+  );
+}
+
+function hasValidFullHarnessContent(agentsContent: string): boolean {
+  return hasRequiredSnippets(
+    getMarkedBlockContent(agentsContent, HARNESS_MARKER_START, HARNESS_MARKER_END),
+    ["currentContract", "paths.stateFile", "Final responses"]
+  );
+}
+
+function hasValidHarnessSupplementContent(harnessAgentsContent: string): boolean {
+  return hasRequiredSnippets(
+    getMarkedBlockContent(harnessAgentsContent, HARNESS_MARKER_START, HARNESS_MARKER_END),
+    ["currentContract", "paths.stateFile", "Final responses"]
+  );
+}
+
+function hasRequiredSnippets(content: string | null, requiredSnippets: string[]): boolean {
+  if (content === null) {
+    return false;
+  }
+
+  const normalizedContent = content.trim();
+  if (normalizedContent === "") {
+    return false;
+  }
+
+  return requiredSnippets.every((snippet) => normalizedContent.includes(snippet));
 }
 
 function escapeRegExp(value: string): string {

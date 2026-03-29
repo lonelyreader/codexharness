@@ -118,11 +118,14 @@ If files are missing or invalid, it prints a clear error plus a recovery hint.
 
 Checks that the key harness files exist, required JSON is valid, required fields are present, and the harness is actually activated in `AGENTS.md`.
 
+It does not stop at marker detection. The validator also checks that the codex-harness-kit bridge block and harness block still contain non-empty, recognizable activation/workflow content.
+
 That means `validate-harness` now fails when:
 
 - there is a plain `AGENTS.md` with no codex-harness-kit block
 - `AGENTS.harness.md` exists but `AGENTS.md` does not bridge or merge it
 - the bridge exists but the harness supplement file is missing or malformed
+- the bridge or harness markers still exist, but their actual instructions were hand-edited away and left as empty shells
 
 ## Initialize an Empty Repo
 

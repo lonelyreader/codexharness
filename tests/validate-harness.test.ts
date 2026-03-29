@@ -45,6 +45,51 @@ test("validate-harness fails when a sidecar exists but AGENTS.md does not activa
   );
 });
 
+test("validate-harness fails when AGENTS.md has only empty bridge markers", async () => {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), "codex-harness-kit-empty-bridge-"));
+  await initializeHarness({ targetPath: repoRoot });
+
+  await writeFile(
+    path.join(repoRoot, "AGENTS.md"),
+    [
+      "# Existing Rules",
+      "",
+      "<!-- codex-harness-kit:bridge:start -->",
+      "<!-- codex-harness-kit:bridge:end -->",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const result = await runValidateHarness(repoRoot);
+
+  assert.equal(result.ok, false);
+  assert.match(
+    result.output,
+    /AGENTS\.md` contains codex-harness-kit bridge markers, but the bridge block is empty or missing the activation instructions/u
+  );
+});
+
+test("validate-harness fails when AGENTS.harness.md has only empty harness markers", async () => {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), "codex-harness-kit-empty-supplement-"));
+  await writeFile(path.join(repoRoot, "AGENTS.md"), "# Repo Rules\n\nKeep me.\n", "utf8");
+  await initializeHarness({ targetPath: repoRoot });
+
+  await writeFile(
+    path.join(repoRoot, "AGENTS.harness.md"),
+    ["<!-- codex-harness-kit:start -->", "<!-- codex-harness-kit:end -->", ""].join("\n"),
+    "utf8"
+  );
+
+  const result = await runValidateHarness(repoRoot);
+
+  assert.equal(result.ok, false);
+  assert.match(
+    result.output,
+    /AGENTS\.harness\.md` contains codex-harness-kit markers, but the harness block is empty or missing required workflow instructions/u
+  );
+});
+
 test("validate-harness passes when an existing AGENTS.md has been bridged", async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), "codex-harness-kit-bridge-pass-"));
   await writeFile(path.join(repoRoot, "AGENTS.md"), "# Repo Rules\n\nKeep me.\n", "utf8");
