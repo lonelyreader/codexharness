@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { initializeHarness, renderInitResult } from "./commands/init.js";
 import { runCheckState } from "./commands/check-state.js";
@@ -78,11 +79,22 @@ Commands:
   validate-harness  Validate required harness files and JSON structure.`;
 }
 
-const isDirectExecution =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isDirectExecution = isExecutedDirectly();
 
 if (isDirectExecution) {
   runCli().then((code) => {
     process.exitCode = code;
   });
+}
+
+function isExecutedDirectly(): boolean {
+  if (process.argv[1] === undefined) {
+    return false;
+  }
+
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return fileURLToPath(import.meta.url) === process.argv[1];
+  }
 }

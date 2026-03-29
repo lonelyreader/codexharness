@@ -43,9 +43,15 @@ v1 deliberately does not include:
 
 ## Install and Run
 
-This repository is npm-ready but not published in this iteration.
+This repository is npm-ready. If you are using the source repo directly, use the local development path below. After the package is published, the npm install path becomes available.
 
-Local development:
+Published package, after release:
+
+```bash
+npx codex-harness-kit init
+```
+
+Local development from this repository:
 
 ```bash
 npm install
@@ -53,17 +59,11 @@ npm run build
 node dist/src/cli.js --help
 ```
 
-After linking locally:
+Or link the local checkout:
 
 ```bash
 npm link
 codex-harness-kit --help
-```
-
-After future npm publication, the intended usage is:
-
-```bash
-npx codex-harness-kit init
 ```
 
 ## CLI Commands
@@ -128,6 +128,14 @@ That means `validate-harness` now fails when:
 - the bridge or harness markers still exist, but their actual instructions were hand-edited away and left as empty shells
 
 ## Initialize an Empty Repo
+
+Fastest first-use path after installation:
+
+```bash
+codex-harness-kit init
+codex-harness-kit check-state
+codex-harness-kit validate-harness
+```
 
 Inside the target repository:
 
