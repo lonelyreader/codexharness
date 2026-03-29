@@ -24,7 +24,7 @@ The harness files make the repo readable by both humans and Codex:
 - `docs/project-memory.md` stores durable preferences and recurring pitfalls.
 - `docs/decisions.md` stores explicit trade-offs and decisions.
 - `docs/contracts/` stores task contracts with acceptance and validation notes.
-- `AGENTS.md` or `AGENTS.harness.md` tells Codex to restore state first, validate after edits, and stop blind retries after repeated failures.
+- `AGENTS.md` is the active instruction source. In repos that already have a custom `AGENTS.md`, the tool adds a small activation bridge there and writes the detailed harness rules to `AGENTS.harness.md`.
 
 That means a new thread can start with repository context instead of trying to reconstruct intent from old messages.
 
@@ -80,7 +80,7 @@ Generates the minimal harness files in the current directory or a target path.
 
 Files created by default:
 
-- `AGENTS.md` or `AGENTS.harness.md`
+- `AGENTS.md`
 - `docs/harness-config.json`
 - `docs/harness-state.json`
 - `docs/project-memory.md`
@@ -88,11 +88,17 @@ Files created by default:
 - `docs/contracts/README.md`
 - `docs/contracts/example-contract.md`
 
+When the target repo already has its own `AGENTS.md`, `init` also writes:
+
+- `AGENTS.harness.md`
+
 Safety behavior:
 
 - Existing files are not overwritten by default.
 - Re-running `init` is safe and mostly results in `unchanged` or `skipped` outcomes.
-- If the target repo already has an `AGENTS.md`, this tool preserves it and writes `AGENTS.harness.md` instead.
+- If the target repo already has an `AGENTS.md`, this tool preserves the existing content and appends a marker-based activation bridge to that file.
+- In that same case, the detailed harness rules are written to `AGENTS.harness.md`.
+- Re-running `init` does not duplicate the bridge block.
 - Use `--force` only when you explicitly want harness-managed files overwritten.
 
 ### `check-state`
@@ -110,7 +116,13 @@ If files are missing or invalid, it prints a clear error plus a recovery hint.
 
 ### `validate-harness`
 
-Checks that the key harness files exist, required JSON is valid, and required fields are present.
+Checks that the key harness files exist, required JSON is valid, required fields are present, and the harness is actually activated in `AGENTS.md`.
+
+That means `validate-harness` now fails when:
+
+- there is a plain `AGENTS.md` with no codex-harness-kit block
+- `AGENTS.harness.md` exists but `AGENTS.md` does not bridge or merge it
+- the bridge exists but the harness supplement file is missing or malformed
 
 ## Initialize an Empty Repo
 
@@ -128,7 +140,26 @@ codex-harness-kit init /path/to/repo
 
 ## Initialize an Existing Repo
 
-Run the same `init` command in the existing repo. If the repo already has its own `AGENTS.md`, the tool keeps that file untouched and creates `AGENTS.harness.md` for manual merge or side-by-side use.
+Run the same `init` command in the existing repo.
+
+If the repo already has its own `AGENTS.md`, the tool:
+
+1. preserves the existing content
+2. appends a clearly marked codex-harness-kit activation bridge to `AGENTS.md`
+3. writes the detailed harness workflow to `AGENTS.harness.md`
+
+This keeps the repo safe and readable while still making the harness an active instruction source instead of an ignored sidecar.
+
+## What Counts as "Harness Activated"
+
+The harness is considered activated only when `AGENTS.md` explicitly includes codex-harness-kit instructions.
+
+There are two valid states:
+
+1. `AGENTS.md` contains the full codex-harness-kit harness block.
+2. `AGENTS.md` contains the codex-harness-kit bridge block and that bridge points to a valid `AGENTS.harness.md`.
+
+Having an unrelated `AGENTS.md` file is not enough. Having only `AGENTS.harness.md` is not enough either.
 
 ## What to Tell Codex After Initialization
 
@@ -171,6 +202,33 @@ Edit `docs/harness-config.json` after initialization:
 ```
 
 `check-state` and the `AGENTS` rules assume these commands describe the repo's minimal and fuller validation steps.
+
+## Path Configuration and Recovery
+
+The fixed entrypoint is `docs/harness-config.json`.
+
+The `AGENTS` instructions intentionally tell Codex to read that config first, then follow:
+
+- `paths.stateFile`
+- `paths.memoryFile`
+- `paths.decisionsFile`
+- `paths.contractsDir`
+
+So if you later move the state or memory files, update `docs/harness-config.json` and the harness instructions still hold. The active contract path in the state file should also be updated if contract files move.
+
+## If Initialization Did Not Activate the Harness
+
+Run:
+
+```bash
+codex-harness-kit validate-harness
+```
+
+If validation fails on activation:
+
+1. rerun `codex-harness-kit init`
+2. check that `AGENTS.md` contains the codex-harness-kit block or bridge markers
+3. if the repo uses a bridge, check that `AGENTS.harness.md` exists and still contains the harness-managed block
 
 ## Using It in Other Projects
 

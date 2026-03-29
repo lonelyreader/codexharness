@@ -3,6 +3,8 @@ import type { HarnessConfig, HarnessState } from "./types.js";
 export const DEFAULT_CONFIG_PATH = "docs/harness-config.json";
 export const HARNESS_MARKER_START = "<!-- codex-harness-kit:start -->";
 export const HARNESS_MARKER_END = "<!-- codex-harness-kit:end -->";
+export const HARNESS_BRIDGE_MARKER_START = "<!-- codex-harness-kit:bridge:start -->";
+export const HARNESS_BRIDGE_MARKER_END = "<!-- codex-harness-kit:bridge:end -->";
 
 export function createDefaultConfig(): HarnessConfig {
   return {
@@ -44,26 +46,28 @@ export function renderJsonFile(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export function renderAgentsTemplate(): string {
+export function renderAgentsTemplate(configPath = DEFAULT_CONFIG_PATH): string {
   return `${HARNESS_MARKER_START}
 # AGENTS
 
 ## Codex Harness Workflow
 
-1. Before changing code, read these files in order:
-   - \`docs/harness-config.json\`
-   - \`docs/harness-state.json\`
-   - the active contract referenced by \`currentContract\`
-   - \`docs/decisions.md\`
-   - \`docs/project-memory.md\`
-2. Restore state before editing. Do not jump straight into implementation.
-3. Keep the contract current. If scope or acceptance changes, update the contract before more code changes.
-4. After edits, run the smallest meaningful verification command and record the result in \`docs/harness-state.json\`.
-5. If the same class of failure happens twice in a row, stop trial-and-error and write a short diagnosis with evidence, suspected root cause, and the safest next move.
-6. Capture durable context:
-   - long-lived preferences and quirks go in \`docs/project-memory.md\`
-   - explicit trade-offs and architectural choices go in \`docs/decisions.md\`
-7. Final responses must always say:
+1. Before changing code, read \`${configPath}\` first.
+2. Then use the configured paths from that file instead of assuming fixed \`docs/...\` locations:
+   - read \`paths.stateFile\`
+   - read the active contract referenced by \`currentContract\` inside the state file
+   - read \`paths.decisionsFile\`
+   - read \`paths.memoryFile\`
+   - use \`paths.contractsDir\` for contract discovery
+3. Use the configured validation commands from \`commands.verifyQuick\` and \`commands.verifyFull\` when they are set.
+4. Restore state before editing. Do not jump straight into implementation.
+5. Keep the contract current. If scope or acceptance changes, update the contract before more code changes.
+6. After edits, run the smallest meaningful verification command and record the result in the file pointed to by \`paths.stateFile\`.
+7. If the same class of failure reaches the configured repeated-failure limit in \`rules.maxRepeatedFailures\`, stop trial-and-error and write a short diagnosis with evidence, suspected root cause, and the safest next move.
+8. Capture durable context:
+   - long-lived preferences and quirks go in \`paths.memoryFile\`
+   - explicit trade-offs and architectural choices go in \`paths.decisionsFile\`
+9. Final responses must always say:
    - what changed
    - what verification ran
    - what verification did not run
@@ -80,6 +84,43 @@ When a new Codex thread starts, begin by reading the harness files above. A good
 - Keep this harness lightweight; do not turn it into a platform.
 - If validation is not configured yet, say so explicitly instead of claiming full verification.
 ${HARNESS_MARKER_END}
+`;
+}
+
+export function renderAgentsHarnessSupplement(configPath = DEFAULT_CONFIG_PATH): string {
+  return `${HARNESS_MARKER_START}
+# AGENTS Harness Supplement
+
+This file is active only when \`AGENTS.md\` contains the codex-harness-kit bridge block.
+
+## Harness Rules
+
+1. Read \`${configPath}\` first.
+2. Resolve the working files from \`paths.stateFile\`, \`paths.memoryFile\`, \`paths.decisionsFile\`, and \`paths.contractsDir\`.
+3. Open the active contract from \`currentContract\` in the state file before writing code.
+4. Restore state before editing, then keep the contract current as scope changes.
+5. After edits, run the smallest meaningful verification command from the config and record the result back into the configured state file.
+6. If repeated failures hit the configured limit in \`rules.maxRepeatedFailures\`, stop guessing and produce a diagnosis instead of trying random fixes.
+7. Write durable preferences to the memory file and explicit trade-offs to the decisions file.
+8. Final responses must say what changed, what verification ran, and what verification did not run.
+${HARNESS_MARKER_END}
+`;
+}
+
+export function renderAgentsActivationBridge(configPath = DEFAULT_CONFIG_PATH): string {
+  return `${HARNESS_BRIDGE_MARKER_START}
+## Codex Harness Activation
+
+This repository uses \`codex-harness-kit\`.
+
+Keep the existing instructions in this file, and additionally treat \`AGENTS.harness.md\` as active instructions.
+
+Before making code changes:
+
+1. Read \`${configPath}\` first.
+2. Use the file paths from the config \`paths\` object instead of assuming fixed \`docs/...\` paths.
+3. Follow the harness workflow in \`AGENTS.harness.md\` together with the rest of this file.
+${HARNESS_BRIDGE_MARKER_END}
 `;
 }
 
@@ -139,7 +180,7 @@ Each contract should answer:
 Suggested flow:
 
 1. Update or create a contract.
-2. Point \`docs/harness-state.json\` at that contract.
+2. Point \`currentContract\` in your configured state file at that contract.
 3. Implement against the contract.
 4. Run verification.
 5. Update state and decisions.

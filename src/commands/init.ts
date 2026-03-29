@@ -4,6 +4,8 @@ import path from "node:path";
 import {
   createDefaultConfig,
   createDefaultState,
+  renderAgentsActivationBridge,
+  renderAgentsHarnessSupplement,
   renderAgentsTemplate,
   renderContractsReadmeTemplate,
   renderDecisionsTemplate,
@@ -13,10 +15,18 @@ import {
 } from "../templates.js";
 import {
   ensureParentDirectory,
+  hasMarkedBlock,
   pathExists,
-  relativeToRepo
+  relativeToRepo,
+  upsertMarkedBlock
 } from "../harness.js";
 import type { FileAction, InitResult } from "../types.js";
+import {
+  HARNESS_BRIDGE_MARKER_END,
+  HARNESS_BRIDGE_MARKER_START,
+  HARNESS_MARKER_END,
+  HARNESS_MARKER_START
+} from "../templates.js";
 
 export interface InitOptions {
   targetPath?: string;
@@ -40,9 +50,9 @@ export async function initializeHarness(options: InitOptions = {}): Promise<Init
     ["docs/contracts/example-contract.md", renderExampleContractTemplate()]
   ]);
 
-  const agentsAction = await writeAgentsFile(repoRoot, force);
-  actions.push(agentsAction.action);
-  notes.push(...agentsAction.notes);
+  const agentsResult = await writeAgentsFiles(repoRoot);
+  actions.push(...agentsResult.actions);
+  notes.push(...agentsResult.notes);
 
   for (const [relativePath, content] of templates) {
     const absolutePath = path.join(repoRoot, relativePath);
@@ -56,35 +66,43 @@ export async function initializeHarness(options: InitOptions = {}): Promise<Init
   };
 }
 
-async function writeAgentsFile(
-  repoRoot: string,
-  force: boolean
-): Promise<{ action: FileAction; notes: string[] }> {
+async function writeAgentsFiles(repoRoot: string): Promise<{ actions: FileAction[]; notes: string[] }> {
   const agentsPath = path.join(repoRoot, "AGENTS.md");
   const harnessAgentsPath = path.join(repoRoot, "AGENTS.harness.md");
-  const content = renderAgentsTemplate();
+  const fullAgentsContent = renderAgentsTemplate();
+  const bridgeContent = renderAgentsActivationBridge();
+  const supplementContent = renderAgentsHarnessSupplement();
+  const actions: FileAction[] = [];
 
   if (!(await pathExists(agentsPath))) {
-    const action = await writeTextFileSafely(repoRoot, agentsPath, content, force);
-    return { action, notes: [] };
+    actions.push(await writeManagedFile(repoRoot, agentsPath, fullAgentsContent));
+    return { actions, notes: [] };
   }
 
   const existingAgents = await readFile(agentsPath, "utf8");
-  if (existingAgents === content) {
-    return {
-      action: {
-        file: "AGENTS.md",
-        status: "unchanged"
-      },
-      notes: []
-    };
+  if (hasMarkedBlock(existingAgents, HARNESS_MARKER_START, HARNESS_MARKER_END)) {
+    const nextAgentsContent = upsertMarkedBlock(
+      existingAgents,
+      fullAgentsContent,
+      HARNESS_MARKER_START,
+      HARNESS_MARKER_END
+    );
+    actions.push(await writeManagedFile(repoRoot, agentsPath, nextAgentsContent));
+    return { actions, notes: [] };
   }
 
-  const action = await writeTextFileSafely(repoRoot, harnessAgentsPath, content, force);
+  const nextAgentsContent = upsertMarkedBlock(
+    existingAgents,
+    bridgeContent,
+    HARNESS_BRIDGE_MARKER_START,
+    HARNESS_BRIDGE_MARKER_END
+  );
+  actions.push(await writeManagedFile(repoRoot, agentsPath, nextAgentsContent));
+  actions.push(await writeManagedMarkedFile(repoRoot, harnessAgentsPath, supplementContent));
   const notes = [
-    "Existing AGENTS.md was preserved. Harness instructions were written to AGENTS.harness.md so you can merge them manually if desired."
+    "Existing AGENTS.md was preserved and a codex-harness-kit activation bridge was added. Detailed harness rules live in AGENTS.harness.md."
   ];
-  return { action, notes };
+  return { actions, notes };
 }
 
 async function writeTextFileSafely(
@@ -125,6 +143,56 @@ async function writeTextFileSafely(
     file: relativePath,
     status: "updated",
     reason: "Overwritten because --force was provided."
+  };
+}
+
+async function writeManagedMarkedFile(
+  repoRoot: string,
+  absolutePath: string,
+  blockContent: string
+): Promise<FileAction> {
+  if (!(await pathExists(absolutePath))) {
+    return writeManagedFile(repoRoot, absolutePath, blockContent);
+  }
+
+  const existingContent = await readFile(absolutePath, "utf8");
+  const nextContent = upsertMarkedBlock(
+    existingContent,
+    blockContent,
+    HARNESS_MARKER_START,
+    HARNESS_MARKER_END
+  );
+  return writeManagedFile(repoRoot, absolutePath, nextContent);
+}
+
+async function writeManagedFile(
+  repoRoot: string,
+  absolutePath: string,
+  content: string
+): Promise<FileAction> {
+  const relativePath = relativeToRepo(repoRoot, absolutePath);
+  if (!(await pathExists(absolutePath))) {
+    await ensureParentDirectory(absolutePath);
+    await writeFile(absolutePath, content, "utf8");
+    return {
+      file: relativePath,
+      status: "created"
+    };
+  }
+
+  const existing = await readFile(absolutePath, "utf8");
+  if (existing === content) {
+    return {
+      file: relativePath,
+      status: "unchanged"
+    };
+  }
+
+  await ensureParentDirectory(absolutePath);
+  await writeFile(absolutePath, content, "utf8");
+  return {
+    file: relativePath,
+    status: "updated"
   };
 }
 

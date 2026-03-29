@@ -3,6 +3,8 @@ import path from "node:path";
 
 import {
   DEFAULT_CONFIG_PATH,
+  HARNESS_BRIDGE_MARKER_END,
+  HARNESS_BRIDGE_MARKER_START,
   HARNESS_MARKER_END,
   HARNESS_MARKER_START
 } from "./templates.js";
@@ -13,7 +15,13 @@ import type {
   ValidationReport
 } from "./types.js";
 
-export { DEFAULT_CONFIG_PATH, HARNESS_MARKER_END, HARNESS_MARKER_START };
+export {
+  DEFAULT_CONFIG_PATH,
+  HARNESS_BRIDGE_MARKER_END,
+  HARNESS_BRIDGE_MARKER_START,
+  HARNESS_MARKER_END,
+  HARNESS_MARKER_START
+};
 
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
@@ -35,6 +43,39 @@ export function relativeToRepo(repoRoot: string, targetPath: string): string {
 
 export function resolveFromRepo(repoRoot: string, configuredPath: string): string {
   return path.resolve(repoRoot, configuredPath);
+}
+
+export function hasMarkedBlock(content: string, startMarker: string, endMarker: string): boolean {
+  const startIndex = content.indexOf(startMarker);
+  if (startIndex === -1) {
+    return false;
+  }
+
+  const endIndex = content.indexOf(endMarker, startIndex + startMarker.length);
+  return endIndex !== -1;
+}
+
+export function upsertMarkedBlock(
+  existingContent: string,
+  blockContent: string,
+  startMarker: string,
+  endMarker: string
+): string {
+  const normalizedBlock = blockContent.trimEnd();
+  if (hasMarkedBlock(existingContent, startMarker, endMarker)) {
+    const pattern = new RegExp(
+      `${escapeRegExp(startMarker)}[\\s\\S]*?${escapeRegExp(endMarker)}`,
+      "u"
+    );
+    return `${existingContent.replace(pattern, normalizedBlock).trimEnd()}\n`;
+  }
+
+  const trimmedExisting = existingContent.trimEnd();
+  if (trimmedExisting === "") {
+    return `${normalizedBlock}\n`;
+  }
+
+  return `${trimmedExisting}\n\n${normalizedBlock}\n`;
 }
 
 async function readJson<T>(filePath: string): Promise<{ value?: T; error?: string }> {
@@ -232,9 +273,18 @@ export async function validateHarness(repoRootInput: string): Promise<Validation
     issues.push({
       level: "error",
       path: "AGENTS.md",
-      message: "Missing `AGENTS.md` or `AGENTS.harness.md`.",
+      message: "Missing `AGENTS.md`.",
       suggestion: "Run `codex-harness-kit init` in this repository."
     });
+  } else if (!hasAgents && hasHarnessAgents) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.md",
+      message: "`AGENTS.harness.md` exists, but `AGENTS.md` is missing so the harness is not activated.",
+      suggestion: "Create `AGENTS.md` or rerun `codex-harness-kit init` so the activation bridge can be added."
+    });
+  } else {
+    issues.push(...(await validateHarnessActivation(agentsPath, harnessAgentsPath, hasHarnessAgents)));
   }
 
   const configPath = path.join(repoRoot, DEFAULT_CONFIG_PATH);
@@ -481,7 +531,7 @@ function buildNextStepSuggestion(config: HarnessConfig, state: HarnessState): st
   }
 
   if (state.currentGoal.trim() === "") {
-    return "Set `currentGoal` in docs/harness-state.json before continuing.";
+    return `Set \`currentGoal\` in ${config.paths.stateFile} before continuing.`;
   }
 
   if (state.currentContract.trim() === "") {
@@ -501,4 +551,63 @@ function buildNextStepSuggestion(config: HarnessConfig, state: HarnessState): st
   }
 
   return "Read the active contract, make the next scoped change, then record validation results.";
+}
+
+async function validateHarnessActivation(
+  agentsPath: string,
+  harnessAgentsPath: string,
+  hasHarnessAgents: boolean
+): Promise<ValidationIssue[]> {
+  const issues: ValidationIssue[] = [];
+  const agentsContent = await readFile(agentsPath, "utf8");
+  const hasFullHarnessBlock = hasMarkedBlock(agentsContent, HARNESS_MARKER_START, HARNESS_MARKER_END);
+  const hasBridgeBlock = hasMarkedBlock(
+    agentsContent,
+    HARNESS_BRIDGE_MARKER_START,
+    HARNESS_BRIDGE_MARKER_END
+  );
+
+  if (hasFullHarnessBlock) {
+    return issues;
+  }
+
+  if (!hasBridgeBlock) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.md",
+      message: hasHarnessAgents
+        ? "`AGENTS.harness.md` exists, but `AGENTS.md` does not activate it with a codex-harness-kit bridge or merged harness block."
+        : "`AGENTS.md` exists, but codex-harness-kit is not activated in it.",
+      suggestion:
+        "Run `codex-harness-kit init` again, or merge the codex-harness-kit harness block into `AGENTS.md`."
+    });
+    return issues;
+  }
+
+  if (!hasHarnessAgents) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.harness.md",
+      message: "`AGENTS.md` contains the codex-harness-kit bridge, but the harness supplement file is missing.",
+      suggestion: "Run `codex-harness-kit init` again to recreate `AGENTS.harness.md`."
+    });
+    return issues;
+  }
+
+  const harnessAgentsContent = await readFile(harnessAgentsPath, "utf8");
+  if (!hasMarkedBlock(harnessAgentsContent, HARNESS_MARKER_START, HARNESS_MARKER_END)) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.harness.md",
+      message: "`AGENTS.harness.md` exists, but it does not contain the codex-harness-kit harness block.",
+      suggestion:
+        "Re-run `codex-harness-kit init --force` or restore the harness-managed block in `AGENTS.harness.md`."
+    });
+  }
+
+  return issues;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
