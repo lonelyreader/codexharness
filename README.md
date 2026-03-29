@@ -28,6 +28,8 @@ The harness files make the repo readable by both humans and Codex:
 
 That means a new thread can start with repository context instead of trying to reconstruct intent from old messages.
 
+The generated `AGENTS` templates also tell Codex to ignore stale thread context until it has reread the harness files, and to close each meaningful task by updating harness state plus any durable decision or memory records.
+
 ## Non-Goals
 
 v1 deliberately does not include:
@@ -182,6 +184,8 @@ Minimal examples:
 - `先更新 contract，再实现`
 - `先别改代码，告诉我当前阻塞`
 - `把这个决定记进项目记忆`
+- `忽略旧线程上下文，重新从 harness 恢复状态后继续`
+- `先收尾，更新 harness-state，并汇报验证结果和下一步`
 
 Equivalent English examples:
 
@@ -189,6 +193,8 @@ Equivalent English examples:
 - `Update the contract first, then implement.`
 - `Do not change code yet; tell me the current blockers.`
 - `Write this decision into project memory.`
+- `Ignore old thread context, restore state from the harness files, then continue.`
+- `Wrap up by updating harness-state, then report verification and next steps.`
 
 ## Recommended Codex Workflow
 
@@ -196,7 +202,7 @@ Equivalent English examples:
 2. Update the contract if scope or acceptance changed.
 3. Implement only the scoped task.
 4. Run the smallest meaningful validation command.
-5. Update state, memory, or decisions before ending the thread.
+5. Before ending the thread, update state and any durable decision or memory records.
 
 ## Customizing Validation Commands
 

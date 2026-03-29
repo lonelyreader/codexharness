@@ -52,31 +52,45 @@ export function renderAgentsTemplate(configPath = DEFAULT_CONFIG_PATH): string {
 
 ## Codex Harness Workflow
 
-1. Before changing code, read \`${configPath}\` first.
-2. Then use the configured paths from that file instead of assuming fixed \`docs/...\` locations:
+1. At the start of any thread, especially an old one, ignore stale chat context until the harness files below have been reread from the repository.
+2. Before changing code, read \`${configPath}\` first.
+3. Then use the configured paths from that file instead of assuming fixed \`docs/...\` locations:
    - read \`paths.stateFile\`
    - read the active contract referenced by \`currentContract\` inside the state file
    - read \`paths.decisionsFile\`
    - read \`paths.memoryFile\`
    - use \`paths.contractsDir\` for contract discovery
-3. Use the configured validation commands from \`commands.verifyQuick\` and \`commands.verifyFull\` when they are set.
-4. Restore state before editing. Do not jump straight into implementation.
-5. Keep the contract current. If scope or acceptance changes, update the contract before more code changes.
-6. After edits, run the smallest meaningful verification command and record the result in the file pointed to by \`paths.stateFile\`.
-7. If the same class of failure reaches the configured repeated-failure limit in \`rules.maxRepeatedFailures\`, stop trial-and-error and write a short diagnosis with evidence, suspected root cause, and the safest next move.
-8. Capture durable context:
+4. Use the configured validation commands from \`commands.verifyQuick\` and \`commands.verifyFull\` when they are set.
+5. Restore state before editing. Do not jump straight into implementation.
+6. Keep the contract current. If scope or acceptance changes, update the contract before more code changes.
+7. After edits, run the smallest meaningful verification command and record the result in the file pointed to by \`paths.stateFile\`.
+8. If the same class of failure reaches the configured repeated-failure limit in \`rules.maxRepeatedFailures\`, stop trial-and-error and write a short diagnosis with evidence, suspected root cause, and the safest next move.
+9. Before ending any meaningful task, update the configured state file with the new status, blockers, next step, and verification result.
+10. Capture durable context:
    - long-lived preferences and quirks go in \`paths.memoryFile\`
    - explicit trade-offs and architectural choices go in \`paths.decisionsFile\`
-9. Final responses must always say:
+11. If the contract changed materially, update the active contract before ending the thread.
+12. Final responses must always say:
    - what changed
    - what verification ran
    - what verification did not run
+   - whether the harness state, decisions, or project memory were updated
 
 ## Restore Prompt
 
 When a new Codex thread starts, begin by reading the harness files above. A good prompt is:
 
 > Restore state and continue from the harness files before making changes.
+
+When reopening an old thread, a good prompt is:
+
+> Ignore old thread context, restore state from the harness files, then continue.
+
+## Wrap-Up Prompt
+
+Before ending a task, a good prompt is:
+
+> Update harness-state, record any durable decisions or memory, then report verification and next steps.
 
 ## Guardrails
 
@@ -95,14 +109,17 @@ This file is active only when \`AGENTS.md\` contains the codex-harness-kit bridg
 
 ## Harness Rules
 
-1. Read \`${configPath}\` first.
-2. Resolve the working files from \`paths.stateFile\`, \`paths.memoryFile\`, \`paths.decisionsFile\`, and \`paths.contractsDir\`.
-3. Open the active contract from \`currentContract\` in the state file before writing code.
-4. Restore state before editing, then keep the contract current as scope changes.
-5. After edits, run the smallest meaningful verification command from the config and record the result back into the configured state file.
-6. If repeated failures hit the configured limit in \`rules.maxRepeatedFailures\`, stop guessing and produce a diagnosis instead of trying random fixes.
-7. Write durable preferences to the memory file and explicit trade-offs to the decisions file.
-8. Final responses must say what changed, what verification ran, and what verification did not run.
+1. At the start of any thread, especially an old one, ignore stale chat context until the harness files have been reread from the repository.
+2. Read \`${configPath}\` first.
+3. Resolve the working files from \`paths.stateFile\`, \`paths.memoryFile\`, \`paths.decisionsFile\`, and \`paths.contractsDir\`.
+4. Open the active contract from \`currentContract\` in the state file before writing code.
+5. Restore state before editing, then keep the contract current as scope changes.
+6. After edits, run the smallest meaningful verification command from the config and record the result back into the configured state file.
+7. Before ending any meaningful task, update the configured state file with status, blockers, next step, and verification result.
+8. If repeated failures hit the configured limit in \`rules.maxRepeatedFailures\`, stop guessing and produce a diagnosis instead of trying random fixes.
+9. Write durable preferences to the memory file and explicit trade-offs to the decisions file.
+10. If the contract changed materially, update it before ending the thread.
+11. Final responses must say what changed, what verification ran, what verification did not run, and whether the harness records were updated.
 ${HARNESS_MARKER_END}
 `;
 }
@@ -120,6 +137,8 @@ Before making code changes:
 1. Read \`${configPath}\` first.
 2. Use the file paths from the config \`paths\` object instead of assuming fixed \`docs/...\` paths.
 3. Follow the harness workflow in \`AGENTS.harness.md\` together with the rest of this file.
+4. In old threads, ignore stale chat context until the harness files have been reread.
+5. Before ending meaningful work, follow the wrap-up steps in \`AGENTS.harness.md\` so state, decisions, and memory stay current.
 ${HARNESS_BRIDGE_MARKER_END}
 `;
 }

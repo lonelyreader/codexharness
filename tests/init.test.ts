@@ -34,6 +34,17 @@ test("init generates the harness files in an empty directory", async () => {
   }
 });
 
+test("init writes AGENTS guidance for stale-thread recovery and task wrap-up", async () => {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), "codex-harness-kit-agents-guidance-"));
+  await initializeHarness({ targetPath: repoRoot });
+
+  const agentsContent = await readFile(path.join(repoRoot, "AGENTS.md"), "utf8");
+
+  assert.match(agentsContent, /ignore stale chat context until the harness files below have been reread/u);
+  assert.match(agentsContent, /Before ending any meaningful task, update the configured state file/u);
+  assert.match(agentsContent, /whether the harness state, decisions, or project memory were updated/u);
+});
+
 test("init safely activates harness in an existing AGENTS.md repository", async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), "codex-harness-kit-agents-"));
   const agentsPath = path.join(repoRoot, "AGENTS.md");
@@ -48,9 +59,11 @@ test("init safely activates harness in an existing AGENTS.md repository", async 
   assert.match(preservedAgents, /# Custom Agents/u);
   assert.match(preservedAgents, new RegExp(escapeForRegExp(HARNESS_BRIDGE_MARKER_START), "u"));
   assert.match(preservedAgents, new RegExp(escapeForRegExp(HARNESS_BRIDGE_MARKER_END), "u"));
+  assert.match(preservedAgents, /ignore stale chat context until the harness files have been reread/u);
   assert.equal(await pathExists(path.join(repoRoot, "AGENTS.harness.md")), true);
   assert.match(harnessAgents, new RegExp(escapeForRegExp(HARNESS_MARKER_START), "u"));
   assert.match(harnessAgents, new RegExp(escapeForRegExp(HARNESS_MARKER_END), "u"));
+  assert.match(harnessAgents, /Before ending any meaningful task, update the configured state file/u);
   assert.equal(result.notes.some((note) => note.includes("activation bridge")), true);
 });
 
