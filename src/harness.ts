@@ -1,0 +1,504 @@
+import { mkdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
+
+import {
+  DEFAULT_CONFIG_PATH,
+  HARNESS_MARKER_END,
+  HARNESS_MARKER_START
+} from "./templates.js";
+import type {
+  HarnessConfig,
+  HarnessState,
+  ValidationIssue,
+  ValidationReport
+} from "./types.js";
+
+export { DEFAULT_CONFIG_PATH, HARNESS_MARKER_END, HARNESS_MARKER_START };
+
+export async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureParentDirectory(filePath: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+}
+
+export function relativeToRepo(repoRoot: string, targetPath: string): string {
+  const relativePath = path.relative(repoRoot, targetPath);
+  return relativePath === "" ? "." : relativePath;
+}
+
+export function resolveFromRepo(repoRoot: string, configuredPath: string): string {
+  return path.resolve(repoRoot, configuredPath);
+}
+
+async function readJson<T>(filePath: string): Promise<{ value?: T; error?: string }> {
+  try {
+    const content = await readFile(filePath, "utf8");
+    return {
+      value: JSON.parse(content) as T
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { error: message };
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validateConfigShape(config: unknown, configPath: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  if (!isRecord(config)) {
+    return [
+      {
+        level: "error",
+        path: configPath,
+        message: "Expected a JSON object.",
+        suggestion: "Re-run `codex-harness-kit init --force` to restore the default file."
+      }
+    ];
+  }
+
+  if (typeof config.version !== "number") {
+    issues.push({
+      level: "error",
+      path: configPath,
+      message: "Missing numeric `version` field."
+    });
+  }
+
+  if (!isRecord(config.paths)) {
+    issues.push({
+      level: "error",
+      path: configPath,
+      message: "Missing object `paths` field."
+    });
+  } else {
+    const requiredPaths = ["stateFile", "memoryFile", "decisionsFile", "contractsDir"] as const;
+    for (const key of requiredPaths) {
+      if (typeof config.paths[key] !== "string" || config.paths[key].trim() === "") {
+        issues.push({
+          level: "error",
+          path: configPath,
+          message: `Missing non-empty \`paths.${key}\` string.`
+        });
+      }
+    }
+  }
+
+  if (!isRecord(config.commands)) {
+    issues.push({
+      level: "error",
+      path: configPath,
+      message: "Missing object `commands` field."
+    });
+  } else {
+    const requiredCommands = ["verifyQuick", "verifyFull", "docsGenerate"] as const;
+    for (const key of requiredCommands) {
+      if (typeof config.commands[key] !== "string") {
+        issues.push({
+          level: "error",
+          path: configPath,
+          message: `Missing string \`commands.${key}\` field.`
+        });
+      }
+    }
+
+    if (
+      typeof config.commands.verifyQuick === "string" &&
+      typeof config.commands.verifyFull === "string" &&
+      config.commands.verifyQuick.trim() === "" &&
+      config.commands.verifyFull.trim() === ""
+    ) {
+      issues.push({
+        level: "warning",
+        path: configPath,
+        message: "Verification commands are still blank.",
+        suggestion: "Set `commands.verifyQuick` and optionally `commands.verifyFull` after initialization."
+      });
+    }
+  }
+
+  if (!isRecord(config.rules)) {
+    issues.push({
+      level: "error",
+      path: configPath,
+      message: "Missing object `rules` field."
+    });
+  } else if (
+    typeof config.rules.maxRepeatedFailures !== "number" ||
+    config.rules.maxRepeatedFailures < 1
+  ) {
+    issues.push({
+      level: "error",
+      path: configPath,
+      message: "`rules.maxRepeatedFailures` must be a number greater than or equal to 1."
+    });
+  }
+
+  return issues;
+}
+
+function validateStateShape(state: unknown, statePath: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  if (!isRecord(state)) {
+    return [
+      {
+        level: "error",
+        path: statePath,
+        message: "Expected a JSON object.",
+        suggestion: "Re-run `codex-harness-kit init --force` to restore the default state."
+      }
+    ];
+  }
+
+  const requiredStrings = [
+    "currentGoal",
+    "status",
+    "currentContract",
+    "nextStep",
+    "lastUpdated"
+  ] as const;
+  for (const key of requiredStrings) {
+    if (typeof state[key] !== "string") {
+      issues.push({
+        level: "error",
+        path: statePath,
+        message: `Missing string \`${key}\` field.`
+      });
+    }
+  }
+
+  if (!isStringArray(state.blockers)) {
+    issues.push({
+      level: "error",
+      path: statePath,
+      message: "`blockers` must be an array of strings."
+    });
+  }
+
+  if (!isRecord(state.verification)) {
+    issues.push({
+      level: "error",
+      path: statePath,
+      message: "Missing object `verification` field."
+    });
+  } else {
+    const verificationKeys = ["lastCommand", "lastResult", "notes"] as const;
+    for (const key of verificationKeys) {
+      if (typeof state.verification[key] !== "string") {
+        issues.push({
+          level: "error",
+          path: statePath,
+          message: `Missing string \`verification.${key}\` field.`
+        });
+      }
+    }
+  }
+
+  if (typeof state.lastUpdated === "string" && Number.isNaN(Date.parse(state.lastUpdated))) {
+    issues.push({
+      level: "warning",
+      path: statePath,
+      message: "`lastUpdated` is not a valid ISO timestamp."
+    });
+  }
+
+  return issues;
+}
+
+export async function validateHarness(repoRootInput: string): Promise<ValidationReport> {
+  const repoRoot = path.resolve(repoRootInput);
+  const issues: ValidationIssue[] = [];
+  const agentsPath = path.join(repoRoot, "AGENTS.md");
+  const harnessAgentsPath = path.join(repoRoot, "AGENTS.harness.md");
+  const hasAgents = await pathExists(agentsPath);
+  const hasHarnessAgents = await pathExists(harnessAgentsPath);
+
+  if (!hasAgents && !hasHarnessAgents) {
+    issues.push({
+      level: "error",
+      path: "AGENTS.md",
+      message: "Missing `AGENTS.md` or `AGENTS.harness.md`.",
+      suggestion: "Run `codex-harness-kit init` in this repository."
+    });
+  }
+
+  const configPath = path.join(repoRoot, DEFAULT_CONFIG_PATH);
+  if (!(await pathExists(configPath))) {
+    issues.push({
+      level: "error",
+      path: DEFAULT_CONFIG_PATH,
+      message: "Missing harness config file.",
+      suggestion: "Run `codex-harness-kit init` to generate the default harness files."
+    });
+    return {
+      ok: false,
+      repoRoot,
+      agentsFile: hasAgents ? "AGENTS.md" : hasHarnessAgents ? "AGENTS.harness.md" : null,
+      issues
+    };
+  }
+
+  const configLoad = await readJson<HarnessConfig>(configPath);
+  if (configLoad.error) {
+    issues.push({
+      level: "error",
+      path: DEFAULT_CONFIG_PATH,
+      message: `Invalid JSON: ${configLoad.error}`,
+      suggestion: "Fix the JSON syntax or restore the file with `codex-harness-kit init --force`."
+    });
+    return {
+      ok: false,
+      repoRoot,
+      agentsFile: hasAgents ? "AGENTS.md" : hasHarnessAgents ? "AGENTS.harness.md" : null,
+      issues
+    };
+  }
+
+  const config = configLoad.value;
+  issues.push(...validateConfigShape(config, DEFAULT_CONFIG_PATH));
+  if (!config || issues.some((issue) => issue.level === "error")) {
+    return {
+      ok: false,
+      repoRoot,
+      agentsFile: hasAgents ? "AGENTS.md" : hasHarnessAgents ? "AGENTS.harness.md" : null,
+      issues,
+      config
+    };
+  }
+
+  const statePath = resolveFromRepo(repoRoot, config.paths.stateFile);
+  const memoryPath = resolveFromRepo(repoRoot, config.paths.memoryFile);
+  const decisionsPath = resolveFromRepo(repoRoot, config.paths.decisionsFile);
+  const contractsDirPath = resolveFromRepo(repoRoot, config.paths.contractsDir);
+  const contractsReadmePath = path.join(contractsDirPath, "README.md");
+
+  if (!(await pathExists(statePath))) {
+    issues.push({
+      level: "error",
+      path: config.paths.stateFile,
+      message: "Missing state file."
+    });
+  }
+  if (!(await pathExists(memoryPath))) {
+    issues.push({
+      level: "error",
+      path: config.paths.memoryFile,
+      message: "Missing project memory file."
+    });
+  }
+  if (!(await pathExists(decisionsPath))) {
+    issues.push({
+      level: "error",
+      path: config.paths.decisionsFile,
+      message: "Missing decisions file."
+    });
+  }
+  if (!(await pathExists(contractsDirPath))) {
+    issues.push({
+      level: "error",
+      path: config.paths.contractsDir,
+      message: "Missing contracts directory."
+    });
+  } else if (!(await pathExists(contractsReadmePath))) {
+    issues.push({
+      level: "error",
+      path: path.join(config.paths.contractsDir, "README.md"),
+      message: "Missing contracts README."
+    });
+  }
+
+  let state: HarnessState | undefined;
+  if (await pathExists(statePath)) {
+    const stateLoad = await readJson<HarnessState>(statePath);
+    if (stateLoad.error) {
+      issues.push({
+        level: "error",
+        path: config.paths.stateFile,
+        message: `Invalid JSON: ${stateLoad.error}`,
+        suggestion: "Fix the JSON syntax or restore the file with `codex-harness-kit init --force`."
+      });
+    } else {
+      const loadedState = stateLoad.value;
+      if (loadedState === undefined) {
+        issues.push({
+          level: "error",
+          path: config.paths.stateFile,
+          message: "State file parsed but no data was returned."
+        });
+      } else {
+        state = loadedState;
+        issues.push(...validateStateShape(state, config.paths.stateFile));
+        if (state.currentContract.trim() !== "") {
+          const contractPath = resolveFromRepo(repoRoot, state.currentContract);
+          if (!(await pathExists(contractPath))) {
+            issues.push({
+              level: "error",
+              path: state.currentContract,
+              message: "The active contract file does not exist."
+            });
+          }
+        } else {
+          issues.push({
+            level: "warning",
+            path: config.paths.stateFile,
+            message: "No active contract is set in `currentContract`."
+          });
+        }
+      }
+    }
+  }
+
+  const ok = !issues.some((issue) => issue.level === "error");
+  return {
+    ok,
+    repoRoot,
+    agentsFile: hasAgents ? "AGENTS.md" : hasHarnessAgents ? "AGENTS.harness.md" : null,
+    issues,
+    config,
+    state
+  };
+}
+
+export function renderValidationReport(report: ValidationReport): string {
+  const lines: string[] = [];
+  lines.push(`Harness validation for ${report.repoRoot}`);
+  lines.push(report.ok ? "PASS" : "FAIL");
+
+  if (report.issues.length === 0) {
+    lines.push("- No issues found.");
+    return lines.join("\n");
+  }
+
+  const errors = report.issues.filter((issue) => issue.level === "error");
+  const warnings = report.issues.filter((issue) => issue.level === "warning");
+
+  if (errors.length > 0) {
+    lines.push("");
+    lines.push("Errors:");
+    for (const issue of errors) {
+      lines.push(formatIssue(issue));
+    }
+  }
+
+  if (warnings.length > 0) {
+    lines.push("");
+    lines.push("Warnings:");
+    for (const issue of warnings) {
+      lines.push(formatIssue(issue));
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function formatIssue(issue: ValidationIssue): string {
+  const parts = [`- ${issue.path ? `${issue.path}: ` : ""}${issue.message}`];
+  if (issue.suggestion) {
+    parts.push(`  Suggestion: ${issue.suggestion}`);
+  }
+  return parts.join("\n");
+}
+
+export async function buildStateSummary(repoRootInput: string): Promise<string> {
+  const report = await validateHarness(repoRootInput);
+  if (!report.ok || !report.config || !report.state) {
+    throw new Error(renderValidationReport(report));
+  }
+
+  const repoRoot = report.repoRoot;
+  const { config, state } = report;
+  const contractLabel = await describeContract(repoRoot, state.currentContract);
+  const blockers = state.blockers.length > 0 ? state.blockers.map((item) => `  - ${item}`) : ["  - none"];
+  const verificationCommand =
+    state.verification.lastCommand.trim() === "" ? "(not recorded)" : state.verification.lastCommand;
+  const verificationNotes =
+    state.verification.notes.trim() === "" ? "(no notes)" : state.verification.notes;
+
+  const lines = [
+    `Harness state for ${repoRoot}`,
+    `- Current goal: ${fallbackValue(state.currentGoal)}`,
+    `- Current status: ${fallbackValue(state.status)}`,
+    `- Current contract: ${contractLabel}`,
+    "- Blockers:",
+    ...blockers,
+    `- Recent verification result: ${fallbackValue(state.verification.lastResult)}`,
+    `- Recent verification command: ${verificationCommand}`,
+    `- Recent verification notes: ${verificationNotes}`,
+    `- Next step suggestion: ${buildNextStepSuggestion(config, state)}`,
+    `- Last updated: ${fallbackValue(state.lastUpdated)}`
+  ];
+
+  return lines.join("\n");
+}
+
+async function describeContract(repoRoot: string, currentContract: string): Promise<string> {
+  const contractPath = currentContract.trim();
+  if (contractPath === "") {
+    return "(not set)";
+  }
+
+  const absolutePath = resolveFromRepo(repoRoot, contractPath);
+  if (!(await pathExists(absolutePath))) {
+    return `${contractPath} (missing)`;
+  }
+
+  const content = await readFile(absolutePath, "utf8");
+  const title = extractMarkdownTitle(content);
+  return title ? `${contractPath} (${title})` : contractPath;
+}
+
+function extractMarkdownTitle(content: string): string | null {
+  for (const line of content.split(/\r?\n/u)) {
+    if (line.startsWith("# ")) {
+      return line.slice(2).trim();
+    }
+  }
+  return null;
+}
+
+function fallbackValue(value: string): string {
+  return value.trim() === "" ? "(not set)" : value;
+}
+
+function buildNextStepSuggestion(config: HarnessConfig, state: HarnessState): string {
+  if (state.blockers.length > 0) {
+    return "Resolve the blockers or explicitly re-plan before more implementation work.";
+  }
+
+  if (state.currentGoal.trim() === "") {
+    return "Set `currentGoal` in docs/harness-state.json before continuing.";
+  }
+
+  if (state.currentContract.trim() === "") {
+    return "Point `currentContract` at the active contract before editing code.";
+  }
+
+  if (state.verification.lastResult.toLowerCase() === "failed") {
+    return "Review the last failing verification before retrying more changes.";
+  }
+
+  if (config.commands.verifyQuick.trim() === "") {
+    return "Configure `commands.verifyQuick` in docs/harness-config.json so minimal verification is explicit.";
+  }
+
+  if (state.nextStep.trim() !== "") {
+    return state.nextStep;
+  }
+
+  return "Read the active contract, make the next scoped change, then record validation results.";
+}

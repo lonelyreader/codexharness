@@ -1,0 +1,36 @@
+{
+  "name": "codex-harness-kit",
+  "version": "0.1.0",
+  "description": "A lightweight CLI and scaffold for Codex-style harness workflows in any repository.",
+  "type": "module",
+  "bin": {
+    "codex-harness-kit": "./dist/src/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "verify": "npm run typecheck && npm test"
+  },
+  "keywords": [
+    "codex",
+    "harness",
+    "cli",
+    "typescript",
+    "agent"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.3"
+  }
+}
